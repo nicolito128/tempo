@@ -1,0 +1,17 @@
+# Environment
+.env
+!.env*.example
+
+# IDE
+.vscode
+.idea
+
+# Binaries
+*.o
+*.a
+*.exe
+
+# Test audio file
+*.mp3
+*.wav
+
