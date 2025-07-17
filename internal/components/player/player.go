@@ -24,7 +24,7 @@ type Player struct {
 	// Streamer audio file
 	stream beep.StreamSeekCloser
 
-	// Sample format
+	// Buffer format for stream
 	format beep.Format
 
 	// Volume controller
@@ -33,16 +33,19 @@ type Player struct {
 	// Ctrl allows to pause the streamer
 	ctrl *beep.Ctrl
 
-	// hasInit if the audio player is already started
+	// hasInit if player is already started and audio loaded as streamer
 	hasInit bool
 
-	// isRunning if there is an audio being played back
-	isRunning bool
+	// running if audio is being played
+	running bool
 
-	// isQuitting if the user requests to exit the program
-	isQuitting bool
+	// completed if the current audio has finished
+	completed bool
 
-	// totalVolume is the volume of the streamer in a human-readable format
+	// quitting if the user requests to exit the program or if something goes wrong
+	quitting bool
+
+	// totalVolume is the volume of the streamer in a human-readable format (from 0 to 100)
 	totalVolume int
 
 	// Current audio file being played back
@@ -51,9 +54,10 @@ type Player struct {
 	// Time duration of the audio file
 	duration time.Duration
 
-	// Seconds counter of the audio file being played back
-	length int
+	// Elapsed in seconds of the audio file being played
+	elapsed int
 
+	// error to handle
 	err error
 }
 
@@ -86,8 +90,7 @@ func (p *Player) Init() tea.Cmd {
 
 func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if p.err != nil {
-		p.Close()
-		return p, tea.Quit
+		return p, p.Quit()
 	}
 
 	if !p.hasInit && p.currentAudio != nil {
@@ -96,17 +99,15 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case TickMsg:
-		if p.isRunning {
-			p.length++
+		if !p.completed && p.running {
+			p.elapsed++
 		}
-
 		return p, p.tick()
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q", "Q":
-			p.Close()
-			return p, tea.Quit
+			return p, p.Quit()
 
 		case "enter", " ":
 			p.StopOrResume()
@@ -130,7 +131,7 @@ func (p *Player) View() string {
 		return "Error: " + p.err.Error()
 	}
 
-	if p.isQuitting {
+	if p.quitting {
 		return ""
 	}
 
@@ -140,15 +141,19 @@ func (p *Player) View() string {
 			s += "[ Muted ] "
 		}
 
-		if !p.isRunning {
-			s += "( Paused ) "
+		if p.completed {
+			s += "( Finished ) "
 		} else {
-			s += "( Playing ) "
+			if p.running {
+				s += "( Playing ) "
+			} else {
+				s += "( Paused ) "
+			}
 		}
 		s += fmt.Sprintf("File: %s | Volume: %d | Elapsed: %s | Path: %s",
 			p.currentAudio.name,
 			p.totalVolume,
-			FormatSecondsToString(p.length),
+			FormatSecondsToString(p.elapsed),
 			p.currentAudio.path,
 		)
 	}
@@ -159,16 +164,30 @@ func (p *Player) View() string {
 	return s
 }
 
-func (p *Player) Close() {
-	p.isQuitting = true
+func (p *Player) Reset() {
 	p.currentAudio = nil
+	p.hasInit = false
+	p.running = false
+	p.completed = false
+	p.quitting = false
+	p.totalVolume = 50
 	p.duration = 0
-	p.length = 0
+	p.elapsed = 0
+}
 
+func (p *Player) Close() error {
+	p.running = false
 	err := p.stream.Close()
 	if err != nil {
 		p.err = err
 	}
+	return err
+}
+
+func (p *Player) Quit() tea.Cmd {
+	p.quitting = true
+	p.Close()
+	return tea.Quit
 }
 
 func (p *Player) Play() tea.Cmd {
@@ -177,12 +196,23 @@ func (p *Player) Play() tea.Cmd {
 	}
 	p.hasInit = true
 
-	if p.isRunning {
+	// If we are already playing a song, then do nothing
+	if p.running {
 		return nil
 	}
-	p.isRunning = true
+	// Otherwise, start playing the song
+	p.running = true
 
-	speaker.Play(p.volume)
+	done := make(chan struct{})
+	speaker.Play(beep.Seq(p.volume, beep.Callback(func() {
+		done <- struct{}{}
+	})))
+
+	go func() {
+		<-done
+		p.completed = true
+	}()
+
 	return p.tick()
 }
 
@@ -190,10 +220,10 @@ func (p *Player) Resume() {
 	if !p.hasInit {
 		return
 	}
-	if p.isRunning {
+	if p.completed || p.running {
 		return
 	}
-	p.isRunning = true
+	p.running = true
 
 	speaker.Lock()
 	p.ctrl.Paused = false
@@ -204,10 +234,10 @@ func (p *Player) Stop() {
 	if !p.hasInit {
 		return
 	}
-	if !p.isRunning {
+	if p.completed || !p.running {
 		return
 	}
-	p.isRunning = false
+	p.running = false
 
 	speaker.Lock()
 	p.ctrl.Paused = true
@@ -216,7 +246,7 @@ func (p *Player) Stop() {
 
 // StopOrResume pauses or unpauses the speaker audio depending if it is running or not.
 func (p *Player) StopOrResume() {
-	if p.isRunning {
+	if p.running {
 		p.Stop()
 	} else {
 		p.Resume()
