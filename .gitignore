@@ -10,6 +10,8 @@
 *.o
 *.a
 *.exe
+bin/
+!bin/**/*.md
 
 # Test audio file
 *.mp3
