@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,6 +14,8 @@ import (
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/gopxl/beep/v2/wav"
 )
+
+const VolumeShift float64 = 0.15
 
 type TickMsg struct {
 	tick int
@@ -29,39 +30,41 @@ type Player struct {
 	format beep.Format
 
 	// Volume controller
-	vol *effects.Volume
+	volume *effects.Volume
 
 	// Ctrl allows to pause the streamer
 	ctrl *beep.Ctrl
 
-	hasInit   bool
+	// hasInit if the audio player is already started
+	hasInit bool
+
+	// isRunning if there is an audio being played back
 	isRunning bool
 
-	volume float64
+	// isQuitting if the user requests to exit the program
+	isQuitting bool
 
+	// totalVolume is the volume of the streamer in a human-readable format
+	totalVolume int
+
+	// Current audio file being played back
 	currentAudio *AudioFile
 
+	// Time duration of the audio file
 	duration time.Duration
-	length   int
 
-	done chan struct{}
+	// Seconds counter of the audio file being played back
+	length int
 
 	err error
-
-	mu sync.RWMutex
 }
 
 func New(volume int) *Player {
 	p := &Player{}
-	p.vol = &effects.Volume{}
-	p.ctrl = &beep.Ctrl{}
-	p.done = make(chan struct{})
-
-	initVol := AbsVolume(volume)
 	if volume > 100 || volume < 0 {
-		initVol = 0
+		volume = 0
 	}
-	p.volume = initVol
+	p.totalVolume = volume
 
 	return p
 }
@@ -90,6 +93,7 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.QuitMsg:
+		p.Close()
 		return p, tea.Quit
 
 	case TickMsg:
@@ -101,21 +105,25 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c", "q", "Q":
 			p.Close()
 			return p, tea.Quit
 
 		case "enter", " ":
 			p.StopOrResume()
-			return p, nil
 
-		default:
-			return p, nil
+		case "+", "up":
+			p.IncrementVolume()
+
+		case "-", "down":
+			p.DecrementVolume()
+
+		case "m", "M":
+			p.ToggleVolume()
 		}
-
-	default:
-		return p, nil
 	}
+
+	return p, nil
 }
 
 func (p *Player) View() string {
@@ -124,22 +132,40 @@ func (p *Player) View() string {
 		return "Error: " + p.err.Error()
 	}
 
-	if p.currentAudio != nil {
-		var s string
-		if !p.isRunning {
-			s += "(Paused) "
-		} else {
-			s += "(Running) "
-		}
-		s += fmt.Sprintf("File: %s | Time: %ds | Path: %s", p.currentAudio.name, p.length, p.currentAudio.path)
-		return s
+	if p.isQuitting {
+		return ""
 	}
 
-	return ""
+	var s string
+	if p.currentAudio != nil {
+		if p.volume.Silent {
+			s += "[ Muted ] "
+		}
+
+		if !p.isRunning {
+			s += "( Paused ) "
+		} else {
+			s += "( Running ) "
+		}
+		s += fmt.Sprintf("File: %s | Volume: %d | Time: %ds | Path: %s",
+			p.currentAudio.name,
+			p.totalVolume,
+			p.length,
+			p.currentAudio.path,
+		)
+	}
+
+	// help
+	s += "\n\nq / ctrl-c (quit) | Enter / Space (pause) | + / Up (turn up) | - / Down (turn down) | m (mute)\n"
+
+	return s
 }
 
 func (p *Player) Close() {
 	p.currentAudio = nil
+	p.isQuitting = true
+	p.duration = 0
+	p.length = 0
 
 	err := p.stream.Close()
 	if err != nil {
@@ -158,7 +184,7 @@ func (p *Player) Play() tea.Cmd {
 	}
 	p.isRunning = true
 
-	speaker.Play(p.ctrl)
+	speaker.Play(p.volume)
 	return p.tick()
 }
 
@@ -199,6 +225,56 @@ func (p *Player) StopOrResume() {
 	}
 }
 
+func (p *Player) DecrementVolume() {
+	p.totalVolume -= 5
+	if p.totalVolume < 0 {
+		p.totalVolume = 0
+	}
+
+	if p.totalVolume > 0 {
+		p.volume.Volume -= VolumeShift
+	}
+
+	if p.totalVolume == 0 {
+		p.volume.Silent = true
+	} else {
+		p.volume.Silent = false
+	}
+}
+
+func (p *Player) IncrementVolume() {
+	p.totalVolume += 5
+	if p.totalVolume > 100 {
+		p.totalVolume = 100
+	}
+
+	if p.totalVolume < 100 {
+		p.volume.Volume += VolumeShift
+	}
+
+	if p.totalVolume == 0 {
+		p.volume.Silent = true
+	} else {
+		p.volume.Silent = false
+	}
+}
+
+func (p *Player) MuteVolume() {
+	p.volume.Silent = true
+}
+
+func (p *Player) UnmuteVolume() {
+	p.volume.Silent = false
+}
+
+func (p *Player) ToggleVolume() {
+	if p.volume.Silent {
+		p.UnmuteVolume()
+	} else {
+		p.MuteVolume()
+	}
+}
+
 func (p *Player) LoadAudio() {
 	if p.currentAudio == nil {
 		return
@@ -231,11 +307,21 @@ func (p *Player) LoadAudio() {
 		return
 	}
 
+	// Sample audio
 	p.stream = streamer
 	p.format = format
-	p.duration = time.Duration(streamer.Len())
-	p.vol.Streamer = streamer
-	p.ctrl.Streamer = streamer
+	p.duration = time.Duration(streamer.Len()).Round(time.Second)
+	// Controllers
+	p.ctrl = &beep.Ctrl{
+		Streamer: streamer,
+		Paused:   false,
+	}
+	p.volume = &effects.Volume{
+		Streamer: p.ctrl,
+		Base:     1.5,
+		Volume:   0,
+		Silent:   false,
+	}
 }
 
 func (p *Player) tick() tea.Cmd {

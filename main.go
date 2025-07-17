@@ -26,7 +26,7 @@ func main() {
 	af.SetName(filepath.Base(*path))
 	af.SetPath(*path)
 
-	pm := player.New(75)
+	pm := player.New(50)
 	pm.SetAudio(af)
 
 	program := tea.NewProgram(pm)
