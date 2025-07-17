@@ -17,9 +17,7 @@ import (
 
 const VolumeShift float64 = 0.15
 
-type TickMsg struct {
-	tick int
-}
+type TickMsg struct{}
 
 // Player : An audio player and bubbletea Model
 type Player struct {
@@ -87,15 +85,16 @@ func (p *Player) Init() tea.Cmd {
 }
 
 func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if p.err != nil {
+		p.Close()
+		return p, tea.Quit
+	}
+
 	if !p.hasInit && p.currentAudio != nil {
 		return p, p.Play()
 	}
 
 	switch msg := msg.(type) {
-	case tea.QuitMsg:
-		p.Close()
-		return p, tea.Quit
-
 	case TickMsg:
 		if p.isRunning {
 			p.length++
@@ -128,7 +127,6 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (p *Player) View() string {
 	if p.err != nil {
-		p.Close()
 		return "Error: " + p.err.Error()
 	}
 
@@ -145,25 +143,25 @@ func (p *Player) View() string {
 		if !p.isRunning {
 			s += "( Paused ) "
 		} else {
-			s += "( Running ) "
+			s += "( Playing ) "
 		}
-		s += fmt.Sprintf("File: %s | Volume: %d | Time: %ds | Path: %s",
+		s += fmt.Sprintf("File: %s | Volume: %d | Elapsed: %s | Path: %s",
 			p.currentAudio.name,
 			p.totalVolume,
-			p.length,
+			FormatSecondsToString(p.length),
 			p.currentAudio.path,
 		)
 	}
 
 	// help
-	s += "\n\nq / ctrl-c (quit) | Enter / Space (pause) | + / Up (turn up) | - / Down (turn down) | m (mute)\n"
+	s += "\n\nq (quit) | Space (pause/resume) | + / Arrow Up (volume up) | - / Arrow Down (volume down) | m (mute/unmute)\n"
 
 	return s
 }
 
 func (p *Player) Close() {
-	p.currentAudio = nil
 	p.isQuitting = true
+	p.currentAudio = nil
 	p.duration = 0
 	p.length = 0
 
@@ -326,11 +324,42 @@ func (p *Player) LoadAudio() {
 
 func (p *Player) tick() tea.Cmd {
 	return tea.Tick(time.Second, func(_ time.Time) tea.Msg {
-		return TickMsg{tick: p.length}
+		return TickMsg{}
 	})
 }
 
 // AbsVolume converts human readable form volume (0 - 100) to float64 volume.
 func AbsVolume(volume int) float64 {
 	return (float64(volume) - 100) / 10
+}
+
+func FormatSecondsToString(totalSeconds int) string {
+	secondsInMinute := 60
+	secondsInHour := 60 * 60
+	secondsInDay := 60 * 60 * 24
+
+	days := totalSeconds / secondsInDay
+	remainder := totalSeconds % secondsInDay
+
+	hours := remainder / secondsInHour
+	remainder = remainder % secondsInHour
+
+	minutes := remainder / secondsInMinute
+	seconds := remainder % secondsInMinute
+
+	var s string
+	if days > 0 {
+		s += fmt.Sprintf("%dd ", days)
+	}
+	if hours > 0 {
+		s += fmt.Sprintf("%dh ", hours)
+	}
+	if minutes > 0 {
+		s += fmt.Sprintf("%dm ", minutes)
+	}
+	if seconds >= 0 {
+		s += fmt.Sprintf("%ds", seconds)
+	}
+
+	return s
 }
