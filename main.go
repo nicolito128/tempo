@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nicolito128/tempo/internal/components/player"
@@ -22,9 +21,7 @@ func main() {
 	}
 	flag.Parse()
 
-	af := player.AudioFile{}
-	af.SetName(filepath.Base(*play))
-	af.SetPath(*play)
+	af := player.NewAudioFile(*play)
 
 	pm := player.New(50)
 	pm.SetAudio(af)

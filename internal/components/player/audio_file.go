@@ -2,6 +2,8 @@ package player
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 )
 
 type AudioFile struct {
@@ -10,7 +12,10 @@ type AudioFile struct {
 }
 
 func NewAudioFile(path string) AudioFile {
-	return AudioFile{}
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	base = strings.Replace(base, ext, "", 1)
+	return AudioFile{name: base, path: path}
 }
 
 func (a *AudioFile) FilterValue() string {
