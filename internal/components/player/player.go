@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -115,6 +114,9 @@ func (p *Player) Audio() AudioFile {
 // Init initializes the player, loads the audio file, and sets up the speaker.
 func (p *Player) Init() tea.Cmd {
 	p.LoadAudio()
+	if p.err != nil {
+		return p.Quit()
+	}
 	speaker.Init(p.format.SampleRate, p.format.SampleRate.N(time.Second/10))
 	return tea.ClearScreen
 }
@@ -168,7 +170,6 @@ func (p *Player) View() string {
 	if p.err != nil {
 		return "Error: " + p.err.Error()
 	}
-
 	if p.quitting {
 		return ""
 	}
@@ -254,10 +255,13 @@ func (p *Player) Reset() {
 
 // Close stops the player and releases resources.
 func (p *Player) Close() error {
+	var err error
 	p.running = false
-	err := p.stream.Close()
-	if err != nil {
-		p.err = err
+	if p.stream != nil {
+		err = p.stream.Close()
+		if err != nil {
+			p.err = err
+		}
 	}
 	return err
 }
@@ -412,7 +416,7 @@ func (p *Player) LoadAudio() {
 		return
 	}
 
-	ext := filepath.Ext(p.currentAudio.path)
+	ext := p.currentAudio.ext
 	if ext == "" {
 		p.err = errors.New("invalid file extension")
 		return
@@ -432,6 +436,8 @@ func (p *Player) LoadAudio() {
 		streamer, format, err = mp3.Decode(file)
 	case ".wav":
 		streamer, format, err = wav.Decode(file)
+	default:
+		err = errors.New("invalid file extension")
 	}
 
 	if err != nil {
