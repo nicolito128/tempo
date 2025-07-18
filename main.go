@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	path = flag.String("p", "", "Load an audio file from the given path")
+	play = flag.String("play", "", "Load an audio file from the given path")
 )
 
 func main() {
@@ -23,8 +23,8 @@ func main() {
 	flag.Parse()
 
 	af := player.AudioFile{}
-	af.SetName(filepath.Base(*path))
-	af.SetPath(*path)
+	af.SetName(filepath.Base(*play))
+	af.SetPath(*play)
 
 	pm := player.New(50)
 	pm.SetAudio(af)
