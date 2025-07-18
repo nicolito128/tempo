@@ -15,8 +15,10 @@ import (
 	"github.com/gopxl/beep/v2/wav"
 )
 
+// Volume up and down variation (too high shift results in poor audio)
 const VolumeShift float64 = 0.15
 
+// TickMsg every second of the played audio
 type TickMsg struct{}
 
 // Player : An audio player and bubbletea Model
@@ -71,10 +73,12 @@ func New(volume int) *Player {
 	return p
 }
 
+// SetAudio sets the current audio file to be played.
 func (p *Player) SetAudio(af AudioFile) {
 	p.currentAudio = &af
 }
 
+// Audio returns the current audio file being played.
 func (p *Player) Audio() AudioFile {
 	if p.currentAudio != nil {
 		return *p.currentAudio
@@ -82,6 +86,7 @@ func (p *Player) Audio() AudioFile {
 	return AudioFile{}
 }
 
+// Init initializes the player, loads the audio file, and sets up the speaker.
 func (p *Player) Init() tea.Cmd {
 	p.LoadAudio()
 	speaker.Init(p.format.SampleRate, p.format.SampleRate.N(time.Second/10))
@@ -112,6 +117,7 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter", " ":
 			p.StopOrResume()
 
+		// TODO: change the arrows controllers for something else
 		case "+", "up":
 			p.IncrementVolume()
 
@@ -164,6 +170,7 @@ func (p *Player) View() string {
 	return s
 }
 
+// Reset resets the player state, allowing it to be reused for a new audio file.
 func (p *Player) Reset() {
 	p.currentAudio = nil
 	p.hasInit = false
@@ -175,6 +182,7 @@ func (p *Player) Reset() {
 	p.elapsed = 0
 }
 
+// Close stops the player and releases resources.
 func (p *Player) Close() error {
 	p.running = false
 	err := p.stream.Close()
@@ -184,12 +192,14 @@ func (p *Player) Close() error {
 	return err
 }
 
+// Quit stops the player and exits the program.
 func (p *Player) Quit() tea.Cmd {
 	p.quitting = true
 	p.Close()
 	return tea.Quit
 }
 
+// Play starts playing the audio file if it is not already running.
 func (p *Player) Play() tea.Cmd {
 	if p.hasInit {
 		return nil
@@ -216,6 +226,7 @@ func (p *Player) Play() tea.Cmd {
 	return p.tick()
 }
 
+// Resume resumes the audio playback if it is paused.
 func (p *Player) Resume() {
 	if !p.hasInit {
 		return
@@ -230,6 +241,7 @@ func (p *Player) Resume() {
 	speaker.Unlock()
 }
 
+// Stop stops the audio playback if it is currently running.
 func (p *Player) Stop() {
 	if !p.hasInit {
 		return
@@ -244,7 +256,7 @@ func (p *Player) Stop() {
 	speaker.Unlock()
 }
 
-// StopOrResume pauses or unpauses the speaker audio depending if it is running or not.
+// StopOrResume pauses or resumes the speaker audio depending if it's running or not.
 func (p *Player) StopOrResume() {
 	if p.running {
 		p.Stop()
@@ -253,6 +265,7 @@ func (p *Player) StopOrResume() {
 	}
 }
 
+// DecrementVolume decreases the volume by 5 units, ensuring it does not go below 0.
 func (p *Player) DecrementVolume() {
 	p.totalVolume -= 5
 	if p.totalVolume < 0 {
@@ -270,6 +283,7 @@ func (p *Player) DecrementVolume() {
 	}
 }
 
+// IncrementVolume increases the volume by 5 units, ensuring it does not exceed 100.
 func (p *Player) IncrementVolume() {
 	p.totalVolume += 5
 	if p.totalVolume > 100 {
@@ -287,14 +301,17 @@ func (p *Player) IncrementVolume() {
 	}
 }
 
+// MuteVolume sets the volume to silent, effectively muting the audio.
 func (p *Player) MuteVolume() {
 	p.volume.Silent = true
 }
 
+// UnmuteVolume sets the volume to a non-silent state, allowing audio playback.
 func (p *Player) UnmuteVolume() {
 	p.volume.Silent = false
 }
 
+// ToggleVolume toggles the volume state between muted and unmuted.
 func (p *Player) ToggleVolume() {
 	if p.volume.Silent {
 		p.UnmuteVolume()
@@ -303,6 +320,8 @@ func (p *Player) ToggleVolume() {
 	}
 }
 
+// LoadAudio loads the current audio file into the player, decoding it based on its file type.
+// Currently it only supports MP3 and WAV formats.
 func (p *Player) LoadAudio() {
 	if p.currentAudio == nil {
 		return
@@ -352,17 +371,20 @@ func (p *Player) LoadAudio() {
 	}
 }
 
+// tick sends a TickMsg every second to update the elapsed time of the audio playback.
 func (p *Player) tick() tea.Cmd {
 	return tea.Tick(time.Second, func(_ time.Time) tea.Msg {
 		return TickMsg{}
 	})
 }
 
-// AbsVolume converts human readable form volume (0 - 100) to float64 volume.
+// AbsVolume converts human-readable form volume (0 - 100) to float64 volume.
 func AbsVolume(volume int) float64 {
 	return (float64(volume) - 100) / 10
 }
 
+// FormatSecondsToString formats a total number of seconds into a human-readable string.
+// It used for displaying elapsed time in the player.
 func FormatSecondsToString(totalSeconds int) string {
 	secondsInMinute := 60
 	secondsInHour := 60 * 60
