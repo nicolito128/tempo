@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/effects"
 	"github.com/gopxl/beep/v2/mp3"
@@ -17,6 +18,27 @@ import (
 
 // Volume up and down variation (too high shift results in poor audio)
 const VolumeShift float64 = 0.15
+
+// Styles
+const (
+	primaryColor   lipgloss.Color = "#6b84ff"
+	secundaryColor lipgloss.Color = "#6bddff"
+	contrastColor  lipgloss.Color = "#ff6b6b"
+	problemColor   lipgloss.Color = "#e13a2f"
+	greyColor      lipgloss.Color = "#777b7d"
+)
+
+var (
+	containerStyle = lipgloss.NewStyle().
+			Padding(1, 3).
+			Align(lipgloss.Center, lipgloss.Center).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(primaryColor)
+
+	helpStyle = lipgloss.NewStyle().
+			Padding(1, 2).
+			Foreground(greyColor)
+)
 
 // TickMsg every second of the played audio
 type TickMsg struct{}
@@ -90,7 +112,7 @@ func (p *Player) Audio() AudioFile {
 func (p *Player) Init() tea.Cmd {
 	p.LoadAudio()
 	speaker.Init(p.format.SampleRate, p.format.SampleRate.N(time.Second/10))
-	return nil
+	return tea.ClearScreen
 }
 
 func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -103,6 +125,9 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		return p, tea.ClearScreen
+
 	case TickMsg:
 		if !p.completed && p.running {
 			p.elapsed++
@@ -115,7 +140,14 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, p.Quit()
 
 		case "enter", " ":
-			p.StopOrResume()
+			if p.completed {
+				auxFile := p.currentAudio
+				p.Reset()
+				p.currentAudio = auxFile
+				p.Play()
+			} else {
+				p.StopOrResume()
+			}
 
 		// TODO: change the arrows controllers for something else
 		case "+", "up":
@@ -142,30 +174,59 @@ func (p *Player) View() string {
 	}
 
 	var s string
+
 	if p.currentAudio != nil {
 		if p.volume.Silent {
-			s += "[ Muted ] "
+			mutedStyle := lipgloss.NewStyle().
+				Background(problemColor).
+				Render(" × Muted ")
+			s += mutedStyle
 		}
 
 		if p.completed {
-			s += "( Finished ) "
+			s += " ∎ "
 		} else {
 			if p.running {
-				s += "( Playing ) "
+				s += " ⏵ "
 			} else {
-				s += "( Paused ) "
+				s += " ⏸ "
 			}
 		}
-		s += fmt.Sprintf("File: %s | Volume: %d | Elapsed: %s | Path: %s",
-			p.currentAudio.name,
-			p.totalVolume,
-			FormatSecondsToString(p.elapsed),
-			p.currentAudio.path,
+
+		nameElem := lipgloss.NewStyle().
+			Background(primaryColor).
+			Align(lipgloss.Left).
+			Render(fmt.Sprintf(" ♪ %s ", p.currentAudio.name))
+
+		volumeElem := lipgloss.NewStyle().
+			Foreground(primaryColor).
+			Align(lipgloss.Center).
+			Width(10).
+			Render(fmt.Sprintf(" λ %d%%", p.totalVolume))
+
+		elapsedElem := lipgloss.NewStyle().
+			Foreground(contrastColor).
+			Align(lipgloss.Center).
+			Width(10).
+			Render(FormatSecondsToString(p.elapsed))
+
+		pathElem := lipgloss.NewStyle().
+			Background(contrastColor).
+			Align(lipgloss.Left).
+			Foreground(lipgloss.Color("white")).
+			Render(p.currentAudio.path)
+
+		s += fmt.Sprintf("\t[ %s • %s • %s • %s ]",
+			nameElem,
+			volumeElem,
+			elapsedElem,
+			pathElem,
 		)
 	}
+	s = containerStyle.Render(s)
 
 	// help
-	s += "\n\nq (quit) | Space (pause/resume) | + / Arrow Up (volume up) | - / Arrow Down (volume down) | m (mute/unmute)\n"
+	s += helpStyle.Render("\nℹ: q (quit) | Space (pause/resume) | ⏶ (volume up) | ⏷ (volume down) | m (mute/unmute)\n")
 
 	return s
 }
