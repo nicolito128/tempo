@@ -83,7 +83,7 @@ type Player struct {
 	duration time.Duration
 
 	// Elapsed in seconds of the audio file being played
-	elapsed int
+	elapsed time.Duration
 
 	// error to handle
 	err error
@@ -204,11 +204,18 @@ func (p *Player) View() string {
 			Width(10).
 			Render(fmt.Sprintf(" λ %d%%", p.totalVolume))
 
+		elapsedStr := FormatSecondsToString(time.Duration(time.Second * p.elapsed))
 		elapsedElem := lipgloss.NewStyle().
 			Foreground(contrastColor).
 			Align(lipgloss.Center).
 			Width(10).
-			Render(FormatSecondsToString(p.elapsed))
+			Render(elapsedStr)
+
+		durationElem := lipgloss.NewStyle().
+			Foreground(contrastColor).
+			Align(lipgloss.Center).
+			Width(10).
+			Render(FormatSecondsToString(p.duration))
 
 		shortPath := reverseCutString(p.currentAudio.path, PathCharsLimit)
 		pathElem := lipgloss.NewStyle().
@@ -217,10 +224,11 @@ func (p *Player) View() string {
 			Foreground(lipgloss.Color("white")).
 			Render(shortPath)
 
-		s += fmt.Sprintf("\t[ %s • %s • %s • %s ]",
+		s += fmt.Sprintf("\t[ %s • %s • %s / %s • %s ]",
 			nameElem,
 			volumeElem,
 			elapsedElem,
+			durationElem,
 			pathElem,
 		)
 	}
@@ -434,7 +442,8 @@ func (p *Player) LoadAudio() {
 	// Sample audio
 	p.stream = streamer
 	p.format = format
-	p.duration = time.Duration(streamer.Len()).Round(time.Second)
+	p.duration = format.SampleRate.D(streamer.Len()).Round(time.Second)
+
 	// Controllers
 	p.ctrl = &beep.Ctrl{
 		Streamer: streamer,
@@ -462,7 +471,8 @@ func AbsVolume(volume int) float64 {
 
 // FormatSecondsToString formats a total number of seconds into a human-readable string.
 // It used for displaying elapsed time in the player.
-func FormatSecondsToString(totalSeconds int) string {
+func FormatSecondsToString(d time.Duration) string {
+	totalSeconds := int(d.Seconds())
 	secondsInMinute := 60
 	secondsInHour := 60 * 60
 	secondsInDay := 60 * 60 * 24
