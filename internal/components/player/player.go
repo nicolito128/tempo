@@ -16,8 +16,12 @@ import (
 	"github.com/gopxl/beep/v2/wav"
 )
 
-// Volume up and down variation (too high shift results in poor audio)
-const VolumeShift float64 = 0.15
+const (
+	// Volume up and down variation (too high shift results in poor audio)
+	VolumeShift float64 = 0.16
+	// Displays only the last N characters of the path string
+	PathCharsLimit int = 32
+)
 
 // Styles
 const (
@@ -141,19 +145,15 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "enter", " ":
 			if p.completed {
-				auxFile := p.currentAudio
-				p.Reset()
-				p.currentAudio = auxFile
-				p.Play()
+				p.Restart()
 			} else {
 				p.StopOrResume()
 			}
 
-		// TODO: change the arrows controllers for something else
-		case "+", "up":
+		case "+", "up", "k":
 			p.IncrementVolume()
 
-		case "-", "down":
+		case "-", "down", "j":
 			p.DecrementVolume()
 
 		case "m", "M":
@@ -210,11 +210,12 @@ func (p *Player) View() string {
 			Width(10).
 			Render(FormatSecondsToString(p.elapsed))
 
+		shortPath := reverseCutString(p.currentAudio.path, PathCharsLimit)
 		pathElem := lipgloss.NewStyle().
 			Background(contrastColor).
 			Align(lipgloss.Left).
 			Foreground(lipgloss.Color("white")).
-			Render(p.currentAudio.path)
+			Render(shortPath)
 
 		s += fmt.Sprintf("\t[ %s • %s • %s • %s ]",
 			nameElem,
@@ -285,6 +286,21 @@ func (p *Player) Play() tea.Cmd {
 	}()
 
 	return p.tick()
+}
+
+func (p *Player) Restart() {
+	// Save important state
+	auxFile := p.currentAudio
+	auxTotalVolume := p.totalVolume
+
+	p.Reset()
+	p.Close()
+
+	p.currentAudio = auxFile
+	p.totalVolume = auxTotalVolume
+
+	p.Init()
+	p.Play()
 }
 
 // Resume resumes the audio playback if it is paused.
@@ -475,4 +491,14 @@ func FormatSecondsToString(totalSeconds int) string {
 	}
 
 	return s
+}
+
+func reverseCutString(s string, n int) string {
+	runes := []rune(s)
+	if n >= len(runes) {
+		return s
+	}
+
+	lastNRunes := runes[len(runes)-n:]
+	return fmt.Sprintf("...%s", string(lastNRunes))
 }
