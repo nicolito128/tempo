@@ -38,6 +38,14 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(primaryColor)
 
+	primaryHighlighStyle = lipgloss.NewStyle().
+				Background(primaryColor).
+				Foreground(lipgloss.Color("white"))
+
+	contrastHighlighStyle = lipgloss.NewStyle().
+				Background(contrastColor).
+				Foreground(lipgloss.Color("white"))
+
 	helpStyle = lipgloss.NewStyle().
 			Padding(1, 2).
 			Foreground(greyColor)
@@ -177,12 +185,36 @@ func (p *Player) View() string {
 	var s string
 
 	if p.currentAudio != nil {
+		mutedElem := lipgloss.NewStyle().Width(10).MarginRight(1).Render()
 		if p.volume.Silent {
-			mutedStyle := lipgloss.NewStyle().
+			mutedElem = lipgloss.NewStyle().
 				Background(problemColor).
+				Align(lipgloss.Center).
+				Width(10).
+				MarginRight(1).
 				Render(" × Muted ")
-			s += mutedStyle
 		}
+
+		// Percentage of the audio played
+		percentage := float64(p.elapsed) / float64(p.duration.Seconds()) * 100
+
+		loadBar := lipgloss.NewStyle().
+			Align(lipgloss.Left).
+			Width(int(percentage)).
+			Height(1).
+			Background(lipgloss.Color("#f1f1f1")).
+			Render()
+
+		loadBarBox := lipgloss.NewStyle().
+			Align(lipgloss.Center).
+			Width(100).
+			MaxWidth(100).
+			MarginLeft(1).
+			Render(loadBar)
+
+		s += lipgloss.JoinHorizontal(lipgloss.Left, mutedElem, loadBarBox)
+
+		s += "\n\n"
 
 		if p.completed {
 			s += " ∎ "
@@ -194,42 +226,38 @@ func (p *Player) View() string {
 			}
 		}
 
-		nameElem := lipgloss.NewStyle().
-			Background(primaryColor).
-			Align(lipgloss.Left).
+		nameElem := primaryHighlighStyle.
 			Render(fmt.Sprintf(" ♪ %s ", p.currentAudio.name))
 
 		volumeElem := lipgloss.NewStyle().
 			Foreground(primaryColor).
 			Align(lipgloss.Center).
-			Width(10).
+			Width(15).
 			Render(fmt.Sprintf(" λ %d%%", p.totalVolume))
 
 		elapsedStr := FormatSecondsToString(time.Duration(time.Second * p.elapsed))
 		elapsedElem := lipgloss.NewStyle().
 			Foreground(contrastColor).
-			Align(lipgloss.Center).
-			Width(10).
 			Render(elapsedStr)
 
+		durationStr := FormatSecondsToString(p.duration)
 		durationElem := lipgloss.NewStyle().
 			Foreground(contrastColor).
+			Render(durationStr)
+
+		elapseBox := lipgloss.NewStyle().
+			Width(28).
 			Align(lipgloss.Center).
-			Width(10).
-			Render(FormatSecondsToString(p.duration))
+			Render(fmt.Sprintf(" %s / %s ", elapsedElem, durationElem))
 
 		shortPath := reverseCutString(p.currentAudio.path, PathCharsLimit)
-		pathElem := lipgloss.NewStyle().
-			Background(contrastColor).
-			Align(lipgloss.Left).
-			Foreground(lipgloss.Color("white")).
+		pathElem := contrastHighlighStyle.
 			Render(shortPath)
 
-		s += fmt.Sprintf("\t[ %s • %s • %s / %s • %s ]",
+		s += fmt.Sprintf("\t[\t %s • %s • %s • %s \t]",
 			nameElem,
 			volumeElem,
-			elapsedElem,
-			durationElem,
+			elapseBox,
 			pathElem,
 		)
 	}
@@ -304,6 +332,7 @@ func (p *Player) Restart() {
 	// Save important state
 	auxFile := p.currentAudio
 	auxTotalVolume := p.totalVolume
+	silent := p.volume.Silent
 
 	p.Reset()
 	p.Close()
@@ -312,6 +341,8 @@ func (p *Player) Restart() {
 	p.totalVolume = auxTotalVolume
 
 	p.Init()
+	p.volume.Silent = silent
+
 	p.Play()
 }
 
