@@ -28,7 +28,7 @@ const (
 	primaryColor   lipgloss.Color = "#6b84ff"
 	secundaryColor lipgloss.Color = "#6bddff"
 	contrastColor  lipgloss.Color = "#ff6b6b"
-	problemColor   lipgloss.Color = "#e13a2f"
+	problemColor   lipgloss.Color = "#df4e45"
 	greyColor      lipgloss.Color = "#777b7d"
 )
 
