@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,6 +22,8 @@ const (
 	VolumeShift float64 = 0.16
 	// Displays only the last N characters of the path string
 	PathCharsLimit int = 32
+	// SeekCool is the cooldown time between seek actions
+	SeekCooldown time.Duration = 200 * time.Millisecond
 )
 
 // Styles
@@ -95,6 +98,10 @@ type Player struct {
 
 	// error to handle
 	err error
+
+	mu sync.RWMutex
+
+	lastSeekTime time.Time
 }
 
 func New(volume int) *Player {
@@ -145,7 +152,9 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TickMsg:
 		if !p.completed && p.running {
+			p.mu.Lock()
 			p.elapsed++
+			p.mu.Unlock()
 		}
 		return p, p.tick()
 
@@ -167,6 +176,12 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "-", "down", "j":
 			p.DecrementVolume()
 
+		case "left", "h":
+			p.Rewind()
+
+		case "right", "l":
+			p.Forward()
+
 		case "m", "M":
 			p.ToggleVolume()
 		}
@@ -176,6 +191,9 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (p *Player) View() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if p.err != nil {
 		return "Error: " + p.err.Error()
 	}
@@ -209,9 +227,7 @@ func (p *Player) View() string {
 		loadBar := lipgloss.NewStyle().
 			Align(lipgloss.Left).
 			Render(strings.Repeat("•", 100))
-
 		loadBar = strings.Replace(loadBar, "•", whiteCell, int(percentage))
-
 		loadBarBox := lipgloss.NewStyle().
 			Align(lipgloss.Center).
 			Width(100).
@@ -221,7 +237,6 @@ func (p *Player) View() string {
 			Render(loadBar)
 
 		s += lipgloss.JoinHorizontal(lipgloss.Left, mutedElem, loadBarBox)
-
 		s += "\n\n"
 
 		if p.completed {
@@ -272,7 +287,7 @@ func (p *Player) View() string {
 	s = containerStyle.Render(s)
 
 	// help
-	s += helpStyle.Render("\nℹ: q (quit) | Space (pause/resume) | ⏶ (volume up) | ⏷ (volume down) | m (mute/unmute)\n")
+	s += helpStyle.Render("\nℹ: q (quit) | Space (pause/resume) | 🞀 (rewind) | 🞂 (forward) | ⏶ (volume up) | ⏷ (volume down) | m (mute/unmute)\n")
 
 	return s
 }
@@ -343,14 +358,14 @@ func (p *Player) Restart() {
 	silent := p.volume.Silent
 
 	p.Reset()
-	p.Close()
 
+	p.elapsed = 0
+	p.duration = p.format.SampleRate.D(p.stream.Len()).Round(time.Second)
 	p.currentAudio = auxFile
 	p.totalVolume = auxTotalVolume
-
-	p.Init()
 	p.volume.Silent = silent
 
+	p.stream.Seek(0)
 	p.Play()
 }
 
@@ -446,6 +461,65 @@ func (p *Player) ToggleVolume() {
 	} else {
 		p.MuteVolume()
 	}
+}
+
+func (p *Player) Rewind() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if time.Since(p.lastSeekTime) < SeekCooldown {
+		return
+	}
+
+	if p.stream.Err() != nil {
+		p.err = p.stream.Err()
+		return
+	}
+
+	skipDuration := time.Second * 5
+
+	currentPos := p.stream.Position()
+	offset := p.format.SampleRate.N(skipDuration)
+
+	newPos := currentPos - offset
+	newPos = max(newPos, 0)
+
+	p.elapsed = max(p.elapsed-5, 0)
+	p.stream.Seek(newPos)
+	p.lastSeekTime = time.Now()
+}
+
+func (p *Player) Forward() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if time.Since(p.lastSeekTime) < SeekCooldown {
+		return
+	}
+
+	if p.stream.Err() != nil {
+		p.err = p.stream.Err()
+		return
+	}
+
+	skipDuration := time.Second * 5
+
+	currentPos := p.stream.Position()
+	streamLen := p.stream.Len()
+	offset := p.format.SampleRate.N(skipDuration)
+	newPos := currentPos + offset
+
+	if newPos >= streamLen {
+		newPos = streamLen - 1
+	}
+
+	if newPos < 0 {
+		newPos = 0
+	}
+
+	p.elapsed = min(p.elapsed+5, p.duration)
+	p.stream.Seek(newPos)
+	p.lastSeekTime = time.Now()
 }
 
 // LoadAudio loads the current audio file into the player, decoding it based on its file type.
