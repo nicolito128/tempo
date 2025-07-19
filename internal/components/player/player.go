@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -198,16 +199,23 @@ func (p *Player) View() string {
 		// Percentage of the audio played
 		percentage := float64(p.elapsed) / float64(p.duration.Seconds()) * 100
 
+		whiteCell := lipgloss.NewStyle().
+			Background(lipgloss.Color("white")).
+			Foreground(lipgloss.Color("white")).
+			Width(1).
+			Height(1).
+			Render("█")
+
 		loadBar := lipgloss.NewStyle().
 			Align(lipgloss.Left).
-			Width(int(percentage)).
-			Height(1).
-			Background(lipgloss.Color("#f1f1f1")).
-			Render()
+			Render(strings.Repeat("•", 100))
+
+		loadBar = strings.Replace(loadBar, "•", whiteCell, int(percentage))
 
 		loadBarBox := lipgloss.NewStyle().
 			Align(lipgloss.Center).
 			Width(100).
+			Height(1).
 			MaxWidth(100).
 			MarginLeft(1).
 			Render(loadBar)
