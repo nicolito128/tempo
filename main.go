@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nicolito128/tempo/internal/components/player"
+	"github.com/nicolito128/tempo/internal/components/ui"
 )
 
 var (
@@ -21,13 +23,24 @@ func main() {
 	}
 	flag.Parse()
 
+	// Handle error in case the file does not exist
+	if _, err := os.Stat(*play); err != nil {
+		fmt.Println("Error: the file does not exist")
+		os.Exit(1)
+	}
+
+	// Handle error in case the file is not a valid audio file (mp3 or wav)
+	ext := filepath.Ext(*play)
+	if ext != ".mp3" && ext != ".wav" {
+		fmt.Println("Error: the file is not a valid audio file. Try using a .mp3 or .wav file")
+		os.Exit(1)
+	}
+
 	af := player.NewAudioFile(*play)
+	tui := ui.New()
+	tui.Player().SetAudioFile(af)
 
-	pm := player.New(50)
-	pm.SetAudio(af)
-
-	program := tea.NewProgram(pm)
-
+	program := tea.NewProgram(tui)
 	if _, err := program.Run(); err != nil {
 		log.Fatal(err)
 	}

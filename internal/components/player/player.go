@@ -15,6 +15,7 @@ import (
 	"github.com/gopxl/beep/v2/mp3"
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/gopxl/beep/v2/wav"
+	"github.com/nicolito128/tempo/internal/styles"
 )
 
 const (
@@ -26,39 +27,10 @@ const (
 	SeekCooldown time.Duration = 200 * time.Millisecond
 )
 
-// Styles
-const (
-	primaryColor   lipgloss.Color = "#6b84ff"
-	secundaryColor lipgloss.Color = "#6bddff"
-	contrastColor  lipgloss.Color = "#ff6b6b"
-	problemColor   lipgloss.Color = "#df4e45"
-	greyColor      lipgloss.Color = "#777b7d"
-)
-
-var (
-	containerStyle = lipgloss.NewStyle().
-			Padding(1, 3).
-			Align(lipgloss.Center, lipgloss.Center).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(primaryColor)
-
-	primaryHighlighStyle = lipgloss.NewStyle().
-				Background(primaryColor).
-				Foreground(lipgloss.Color("white"))
-
-	contrastHighlighStyle = lipgloss.NewStyle().
-				Background(contrastColor).
-				Foreground(lipgloss.Color("white"))
-
-	helpStyle = lipgloss.NewStyle().
-			Padding(1, 2).
-			Foreground(greyColor)
-)
-
 // TickMsg every second of the played audio
 type TickMsg struct{}
 
-// Player : An audio player and bubbletea Model
+// Player : An audio player
 type Player struct {
 	// Streamer audio file
 	stream beep.StreamSeekCloser
@@ -104,6 +76,8 @@ type Player struct {
 	lastSeekTime time.Time
 }
 
+var _ tea.Model = (*Player)(nil)
+
 func New(volume int) *Player {
 	p := &Player{}
 	if volume > 100 || volume < 0 {
@@ -114,8 +88,8 @@ func New(volume int) *Player {
 	return p
 }
 
-// SetAudio sets the current audio file to be played.
-func (p *Player) SetAudio(af AudioFile) {
+// SetAudioFile sets the current audio file to be played.
+func (p *Player) SetAudioFile(af AudioFile) {
 	p.currentAudio = &af
 }
 
@@ -147,9 +121,6 @@ func (p *Player) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		return p, tea.ClearScreen
-
 	case TickMsg:
 		if !p.completed && p.running {
 			p.mu.Lock()
@@ -203,11 +174,11 @@ func (p *Player) View() string {
 
 	var s string
 
-	if p.currentAudio != nil {
+	if p.currentAudio != nil && p.volume != nil {
 		mutedElem := lipgloss.NewStyle().Width(10).MarginRight(1).Render()
 		if p.volume.Silent {
 			mutedElem = lipgloss.NewStyle().
-				Background(problemColor).
+				Background(styles.PrimaryColor).
 				Align(lipgloss.Center).
 				Width(10).
 				MarginRight(1).
@@ -249,23 +220,22 @@ func (p *Player) View() string {
 			}
 		}
 
-		nameElem := primaryHighlighStyle.
-			Render(fmt.Sprintf(" ♪ %s ", p.currentAudio.name))
+		nameElem := styles.PrimaryHighlight(fmt.Sprintf(" ♪ %s ", p.currentAudio.name))
 
 		volumeElem := lipgloss.NewStyle().
-			Foreground(primaryColor).
+			Foreground(styles.PrimaryColor).
 			Align(lipgloss.Center).
 			Width(15).
 			Render(fmt.Sprintf(" λ %d%%", p.totalVolume))
 
 		elapsedStr := FormatSecondsToString(time.Duration(time.Second * p.elapsed))
 		elapsedElem := lipgloss.NewStyle().
-			Foreground(contrastColor).
+			Foreground(styles.ContrastColor).
 			Render(elapsedStr)
 
 		durationStr := FormatSecondsToString(p.duration)
 		durationElem := lipgloss.NewStyle().
-			Foreground(contrastColor).
+			Foreground(styles.ContrastColor).
 			Render(durationStr)
 
 		elapseBox := lipgloss.NewStyle().
@@ -274,8 +244,7 @@ func (p *Player) View() string {
 			Render(fmt.Sprintf(" %s / %s ", elapsedElem, durationElem))
 
 		shortPath := reverseCutString(p.currentAudio.path, PathCharsLimit)
-		pathElem := contrastHighlighStyle.
-			Render(shortPath)
+		pathElem := styles.ContrastHighlight(shortPath)
 
 		s += fmt.Sprintf("\t[\t %s • %s • %s • %s \t]",
 			nameElem,
@@ -284,10 +253,10 @@ func (p *Player) View() string {
 			pathElem,
 		)
 	}
-	s = containerStyle.Render(s)
+	s = styles.BaseContainer(s)
 
 	// help
-	s += helpStyle.Render("\nℹ: q (quit) | Space (pause/resume) | 🞀 (rewind) | 🞂 (forward) | ⏶ (volume up) | ⏷ (volume down) | m (mute/unmute)\n")
+	s += styles.Help("\nℹ: q (quit) | Space (pause/resume) | 🞀 (rewind) | 🞂 (forward) | ⏶ (volume up) | ⏷ (volume down) | m (mute/unmute)\n")
 
 	return s
 }
@@ -574,6 +543,10 @@ func (p *Player) LoadAudio() {
 		Volume:   0,
 		Silent:   false,
 	}
+}
+
+func (p *Player) Error() error {
+	return p.err
 }
 
 // tick sends a TickMsg every second to update the elapsed time of the audio playback.
