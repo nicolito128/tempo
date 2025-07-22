@@ -178,7 +178,7 @@ func (p *Player) View() string {
 		mutedElem := lipgloss.NewStyle().Width(10).MarginRight(1).Render()
 		if p.volume.Silent {
 			mutedElem = lipgloss.NewStyle().
-				Background(styles.PrimaryColor).
+				Background(styles.ProblemColor).
 				Align(lipgloss.Center).
 				Width(10).
 				MarginRight(1).
@@ -445,16 +445,24 @@ func (p *Player) Rewind() {
 		return
 	}
 
-	skipDuration := time.Second * 5
+	skipDuration := time.Duration(5)
+	if p.elapsed+skipDuration >= p.duration {
+		skipDuration = 0
+	}
 
 	currentPos := p.stream.Position()
-	offset := p.format.SampleRate.N(skipDuration)
+	offset := p.format.SampleRate.N(time.Second * skipDuration)
 
 	newPos := currentPos - offset
 	newPos = max(newPos, 0)
 
-	p.elapsed = max(p.elapsed-5, 0)
-	p.stream.Seek(newPos)
+	p.elapsed = max(p.elapsed-skipDuration, 0)
+
+	if err := p.stream.Seek(newPos); err != nil {
+		p.err = err
+		return
+	}
+
 	p.lastSeekTime = time.Now()
 }
 
@@ -471,23 +479,24 @@ func (p *Player) Forward() {
 		return
 	}
 
-	skipDuration := time.Second * 5
+	skipDuration := time.Duration(5)
+	if p.elapsed+skipDuration >= p.duration {
+		skipDuration = 0
+	}
 
 	currentPos := p.stream.Position()
-	streamLen := p.stream.Len()
-	offset := p.format.SampleRate.N(skipDuration)
+	offset := p.format.SampleRate.N(time.Second * skipDuration)
+
 	newPos := currentPos + offset
+	newPos = min(newPos, p.stream.Len()-1)
 
-	if newPos >= streamLen {
-		newPos = streamLen - 1
+	p.elapsed = min(p.elapsed+skipDuration, p.duration)
+
+	if err := p.stream.Seek(newPos); err != nil {
+		p.err = err
+		return
 	}
 
-	if newPos < 0 {
-		newPos = 0
-	}
-
-	p.elapsed = min(p.elapsed+5, p.duration)
-	p.stream.Seek(newPos)
 	p.lastSeekTime = time.Now()
 }
 
