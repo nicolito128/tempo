@@ -9,7 +9,7 @@ import (
 
 // UI : Tempo user interface model
 //
-// It holds the player, the queue and the current state of the UI.
+// It holds the player, queue and current state of the UI.
 type UI struct {
 	width  int
 	height int

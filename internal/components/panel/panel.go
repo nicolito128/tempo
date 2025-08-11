@@ -3,7 +3,8 @@ package panel
 import tea "github.com/charmbracelet/bubbletea"
 
 // Panel : Music list selection panel
-type Panel struct{}
+type Panel struct {
+}
 
 var _ tea.Model = (*Panel)(nil)
 
