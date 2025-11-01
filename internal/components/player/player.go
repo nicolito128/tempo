@@ -80,7 +80,10 @@ var _ tea.Model = (*Player)(nil)
 
 func New(volume int) *Player {
 	p := &Player{}
-	if volume > 100 || volume < 0 {
+	if volume > 100 {
+		volume = 100
+	}
+	if volume < 0 {
 		volume = 0
 	}
 	p.totalVolume = volume
@@ -176,7 +179,7 @@ func (p *Player) View() string {
 
 	if p.currentAudio != nil && p.volume != nil {
 		mutedElem := lipgloss.NewStyle().Width(10).MarginRight(1).Render()
-		if p.volume.Silent {
+		if p.volume.Silent || p.totalVolume == 0 {
 			mutedElem = lipgloss.NewStyle().
 				Background(styles.ProblemColor).
 				Align(lipgloss.Center).
@@ -551,6 +554,10 @@ func (p *Player) LoadAudio() {
 		Base:     1.5,
 		Volume:   0,
 		Silent:   false,
+	}
+
+	if p.totalVolume == 0 {
+		p.volume.Silent = true
 	}
 }
 

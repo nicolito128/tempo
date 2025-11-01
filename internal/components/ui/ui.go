@@ -19,10 +19,9 @@ type UI struct {
 
 var _ tea.Model = (*UI)(nil)
 
-func New() *UI {
+func New(initVolume int) *UI {
 	ui := new(UI)
-	// TODO: read init volume value from user configuration
-	ui.player = player.New(50)
+	ui.player = player.New(initVolume)
 	return ui
 }
 

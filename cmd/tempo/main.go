@@ -14,6 +14,7 @@ import (
 
 var (
 	play = flag.String("play", "", "Load an audio file from the given path")
+	vol  = flag.Int("vol", 50, "Initial volume to play the audio")
 )
 
 func main() {
@@ -37,7 +38,7 @@ func main() {
 	}
 
 	af := player.NewAudioFile(*play)
-	tui := ui.New()
+	tui := ui.New(*vol)
 	tui.Player().SetAudioFile(af)
 
 	program := tea.NewProgram(tui)
