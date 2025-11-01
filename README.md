@@ -7,5 +7,14 @@ A simple TUI music player written in Go.
 ## Requirements
 
 - Go 1.25+
-- alsa-lib 1.2+
-- CGO (static linking)
+- alsa-lib
+
+## Getting started
+
+Compile the program:
+
+    go build -o bin/tempo cmd/tempo/main.go
+
+Then
+
+    bin/tempo -play <path_to_song>.mp3
