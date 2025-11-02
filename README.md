@@ -13,7 +13,7 @@ A simple TUI music player written in Go.
 
 Compile the program:
 
-    go build -o bin/tempo cmd/tempo/main.go
+    go build -o bin/tempo .
 
 Then
 
