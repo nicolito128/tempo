@@ -12,8 +12,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/effects"
+	"github.com/gopxl/beep/v2/flac"
+	"github.com/gopxl/beep/v2/midi"
 	"github.com/gopxl/beep/v2/mp3"
 	"github.com/gopxl/beep/v2/speaker"
+	"github.com/gopxl/beep/v2/vorbis"
 	"github.com/gopxl/beep/v2/wav"
 	"github.com/nicolito128/tempo/internal/styles"
 )
@@ -33,7 +36,7 @@ type TickMsg struct{}
 // Player : An audio player
 type Player struct {
 	// Streamer audio file
-	stream beep.StreamSeekCloser
+	stream beep.StreamSeeker
 
 	// Buffer format for stream
 	format beep.Format
@@ -281,7 +284,6 @@ func (p *Player) Close() error {
 	var err error
 	p.running = false
 	if p.stream != nil {
-		err = p.stream.Close()
 		if err != nil {
 			p.err = err
 		}
@@ -522,7 +524,7 @@ func (p *Player) LoadAudio() {
 		return
 	}
 
-	var streamer beep.StreamSeekCloser
+	var streamer beep.StreamSeeker
 	var format beep.Format
 
 	switch ext {
@@ -530,6 +532,12 @@ func (p *Player) LoadAudio() {
 		streamer, format, err = mp3.Decode(file)
 	case ".wav":
 		streamer, format, err = wav.Decode(file)
+	case ".flac":
+		streamer, format, err = flac.Decode(file)
+	case ".ogg":
+		streamer, format, err = vorbis.Decode(file)
+	case ".midi":
+		streamer, format, err = midi.Decode(file, nil, format.SampleRate)
 	default:
 		err = errors.New("invalid file extension")
 	}

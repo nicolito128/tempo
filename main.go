@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nicolito128/tempo/internal/components/player"
@@ -29,15 +28,8 @@ func main() {
 		fmt.Println("Error: the file does not exist")
 		os.Exit(1)
 	}
-
-	// Handle error in case the file is not a valid audio file (mp3 or wav)
-	ext := filepath.Ext(*play)
-	if ext != ".mp3" && ext != ".wav" {
-		fmt.Println("Error: the file is not a valid audio file. Try using a .mp3 or .wav file")
-		os.Exit(1)
-	}
-
 	af := player.NewAudioFile(*play)
+
 	tui := ui.New(*vol)
 	tui.Player().SetAudioFile(af)
 

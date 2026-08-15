@@ -6,7 +6,7 @@ A simple TUI music player written in Go.
 
 ## Requirements
 
-- Go 1.25+
+- Go 1.26+
 - alsa-lib
 
 ## Getting started

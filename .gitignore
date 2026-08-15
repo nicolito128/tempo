@@ -16,4 +16,7 @@ bin/
 # Test audio file
 *.mp3
 *.wav
+*.ogg
+*.midi
+*.flac
 
