@@ -2,21 +2,22 @@
 .env
 !.env*.example
 
-# IDE
-.vscode
-.idea
-
-# Binaries
+# Output
 *.o
 *.a
 *.exe
 bin/
-!bin/**/*.md
+build/
+_output/
 
-# Test audio file
+# Audio files
 *.mp3
 *.wav
 *.ogg
 *.midi
 *.flac
 
+# Specifics
+.vscode/
+.idea/
+.DS_Store

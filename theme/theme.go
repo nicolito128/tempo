@@ -1,13 +1,15 @@
-package styles
+package theme
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"charm.land/lipgloss/v2"
+)
 
-const (
-	PrimaryColor   lipgloss.Color = "#6b84ff"
-	SecundaryColor lipgloss.Color = "#6bddff"
-	ContrastColor  lipgloss.Color = "#ff6b6b"
-	ProblemColor   lipgloss.Color = "#df4e45"
-	GreyColor      lipgloss.Color = "#777b7d"
+var (
+	Primary   = lipgloss.Color("#6b84ff")
+	Secundary = lipgloss.Color("#6bddff")
+	Contrast  = lipgloss.Color("#ff6b6b")
+	Problem   = lipgloss.Color("#df4e45")
+	Grey      = lipgloss.Color("#777b7d")
 )
 
 var (
@@ -15,23 +17,23 @@ var (
 				Padding(1, 3).
 				Align(lipgloss.Center, lipgloss.Center).
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(PrimaryColor)
+				BorderForeground(Primary)
 
 	PrimaryHighlightStyle = lipgloss.NewStyle().
-				Background(PrimaryColor).
+				Background(Primary).
 				Foreground(lipgloss.Color("white"))
 
 	ContrastHighlightStyle = lipgloss.NewStyle().
-				Background(ContrastColor).
+				Background(Contrast).
 				Foreground(lipgloss.Color("white"))
 
 	HelpStyle = lipgloss.NewStyle().
 			Padding(1, 2).
-			Foreground(GreyColor)
+			Foreground(Grey)
 )
 
-func BaseContainer(xs ...string) string {
-	return BaseContainerStyle.Render(xs...)
+func BaseContainer(width, height int, xs ...string) string {
+	return BaseContainerStyle.Width(width).Height(height).Render(xs...)
 }
 
 func PrimaryHighlight(xs ...string) string {
