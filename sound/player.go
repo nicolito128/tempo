@@ -27,22 +27,22 @@ const (
 const (
 	SeekCooldown     time.Duration   = 10 * time.Millisecond
 	GlobalSampleRate beep.SampleRate = beep.SampleRate(48000)
+	MaxInMemorySize  int64           = 1 * 1024 * 1024 // 1 MiB
 )
 
 func InitAudioSystem() error {
 	return speaker.Init(GlobalSampleRate, GlobalSampleRate.N(time.Second/10))
 }
 
-func Play(path string, paused, silent bool) error {
-	return NewPlayer(path).Play(paused, silent)
-}
-
 type Player struct {
+	conf *PlayerConfig
+
 	path, ext, base string
 
+	info os.FileInfo
 	file *os.File
 
-	streamer beep.StreamSeekCloser
+	streamer beep.Streamer
 	format   beep.Format
 
 	pauseCtl  *beep.Ctrl
@@ -55,13 +55,21 @@ type Player struct {
 
 	lastSeek time.Time
 
-	quitch chan struct{}
+	donech chan struct{}
+
+	closed bool
 
 	mu sync.RWMutex
 }
 
-func NewPlayer(filename string) *Player {
+func NewPlayer(filename string, opts ...PlayerOpt) *Player {
 	p := new(Player)
+
+	cfg := DefaultPlayerConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	p.conf = cfg
 
 	p.path = path.Clean(filename)
 	p.ext = path.Ext(filename)
@@ -69,9 +77,13 @@ func NewPlayer(filename string) *Player {
 
 	p.percentVolume = DefaultInitVolume
 
-	p.quitch = make(chan struct{}, 1)
+	p.donech = make(chan struct{}, 1)
 
 	return p
+}
+
+func (p *Player) Config() *PlayerConfig {
+	return p.conf
 }
 
 func (p *Player) Path() string {
@@ -103,15 +115,33 @@ func (p *Player) Duration() time.Duration {
 }
 
 func (p *Player) Done() chan struct{} {
-	return p.quitch
+	return p.donech
 }
 
-func (p *Player) Play(paused, silent bool) error {
+func (p *Player) Play(opts ...PlayerOpt) error {
+	if p.closed {
+		return errors.New("file streaming already closed")
+	}
+
+	for _, opt := range opts {
+		opt(p.conf)
+	}
+
 	if p.path == "." {
-		return errors.New("empty filepath")
+		return errors.New("invalid file to play")
 	}
 
 	var err error
+
+	info, err := os.Stat(p.path)
+	if err != nil {
+		return fmt.Errorf("player stat file error: %w", err)
+	}
+	p.info = info
+
+	if p.info.IsDir() {
+		return errors.New("cannot use a directory as a file to play")
+	}
 
 	f, err := os.OpenFile(p.path, os.O_RDONLY, 0)
 	if err != nil {
@@ -142,45 +172,71 @@ func (p *Player) Play(paused, silent bool) error {
 	}
 	p.streamer, p.format = streamer, format
 
+	var buffer *beep.Buffer
+
+	if p.info.Size() < MaxInMemorySize {
+		buffer = beep.NewBuffer(format)
+		buffer.Append(streamer)
+
+		streamer.Close()
+		p.closed = true
+	}
+
+	if buffer != nil {
+		p.streamer = buffer.Streamer(0, buffer.Len())
+	}
+
 	var resampledStreamer beep.Streamer = p.streamer
 	if format.SampleRate != GlobalSampleRate {
-		resampledStreamer = beep.Resample(3, format.SampleRate, GlobalSampleRate, p.streamer)
+		resampledStreamer = beep.Resample(p.conf.Quality, format.SampleRate, GlobalSampleRate, p.streamer)
 	}
 
 	p.pauseCtl = &beep.Ctrl{
 		Streamer: resampledStreamer,
-		Paused:   paused,
+		Paused:   p.conf.Paused,
 	}
 
 	p.volumeCtl = &effects.Volume{
 		Streamer: p.pauseCtl,
 		Base:     2.0,
 		Volume:   0,
-		Silent:   silent,
+		Silent:   p.conf.Silent,
 	}
 	p.updateVolume()
 
 	p.duration = format.SampleRate.D(streamer.Len()).Round(time.Second)
 
-	speaker.Play(p.volumeCtl)
+	speaker.Play(
+		beep.Seq(p.volumeCtl, beep.Callback(func() {
+			p.donech <- struct{}{}
+		})),
+	)
 
 	go func() {
-		ticker := time.NewTicker(250 * time.Millisecond)
+		step := 250 * time.Millisecond
+		ticker := time.NewTicker(step)
 		defer ticker.Stop()
 
 		for range ticker.C {
 			p.mu.Lock()
 
 			if p.streamer != nil {
-				p.elapsed = p.format.SampleRate.D(p.streamer.Position()).Round(time.Second)
+				if v, ok := p.streamer.(beep.StreamSeeker); ok {
+					p.elapsed = p.format.SampleRate.D(v.Position()).Round(time.Second)
+				} else {
+					p.elapsed += step
+				}
+			}
+
+			select {
+			case <-p.donech:
+				p.mu.Unlock()
+				return
+			default:
 			}
 
 			if p.elapsed >= p.duration {
 				p.mu.Unlock()
-				select {
-				case p.quitch <- struct{}{}:
-				default:
-				}
 				return
 			}
 			p.mu.Unlock()
@@ -195,10 +251,14 @@ func (p *Player) Close() error {
 		if p.streamer == nil {
 			return errors.New("invalid streamer")
 		}
-		if err := p.streamer.Close(); err != nil {
-			return err
+
+		if v, ok := p.streamer.(beep.StreamCloser); ok {
+			if err := v.Close(); err != nil {
+				return err
+			}
 		}
 	}
+	p.closed = true
 	return nil
 }
 
@@ -276,7 +336,12 @@ func (p *Player) Restart() error {
 	p.elapsed = 0
 	p.volumeCtl.Silent = false
 
-	return p.streamer.Seek(0)
+	seeker, ok := p.streamer.(beep.StreamSeeker)
+	if !ok {
+		return errors.New("cannot convert beep.Streamer to beep.StreamSeeker")
+	}
+
+	return seeker.Seek(0)
 }
 
 func (p *Player) Rewind() error {
@@ -291,15 +356,20 @@ func (p *Player) Rewind() error {
 		return errors.New("before seek cooldown")
 	}
 
+	seeker, ok := p.streamer.(beep.StreamSeeker)
+	if !ok {
+		return errors.New("cannot convert beep.Streamer to beep.StreamSeeker")
+	}
+
 	step := 5 * time.Second
 
-	currentPos := p.streamer.Position()
+	currentPos := seeker.Position()
 	offset := p.format.SampleRate.N(step)
 
 	newPos := max(currentPos-offset, 0)
 	p.elapsed = p.format.SampleRate.D(newPos).Round(time.Second)
 
-	if err := p.streamer.Seek(newPos); err != nil {
+	if err := seeker.Seek(newPos); err != nil {
 		return err
 	}
 
@@ -319,15 +389,20 @@ func (p *Player) Forward() error {
 		return errors.New("before seek cooldown")
 	}
 
+	seeker, ok := p.streamer.(beep.StreamSeeker)
+	if !ok {
+		return errors.New("cannot convert beep.Streamer to beep.StreamSeeker")
+	}
+
 	step := 5 * time.Second
 
-	currentPos := p.streamer.Position()
+	currentPos := seeker.Position()
 	offset := p.format.SampleRate.N(step)
 
-	newPos := min(currentPos+offset, p.streamer.Len()-1)
+	newPos := min(currentPos+offset, seeker.Len()-1)
 	p.elapsed = p.format.SampleRate.D(newPos).Round(time.Second)
 
-	if err := p.streamer.Seek(newPos); err != nil {
+	if err := seeker.Seek(newPos); err != nil {
 		return err
 	}
 

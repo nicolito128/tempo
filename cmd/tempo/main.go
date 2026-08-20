@@ -47,7 +47,7 @@ var rootCmd = &cobra.Command{
 			defer q.Close()
 
 			q.SetVolume(volumeFlag)
-			if err := q.Play(pausedFlag, silentFlag); err != nil {
+			if err := q.Play(sound.WithPlayerPaused(pausedFlag), sound.WithPlayerSilent(silentFlag)); err != nil {
 				fmt.Println(err)
 			}
 
