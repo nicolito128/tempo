@@ -57,7 +57,8 @@ type Player struct {
 
 	donech chan struct{}
 
-	closed bool
+	completed bool
+	closed    bool
 
 	mu sync.RWMutex
 }
@@ -108,6 +109,37 @@ func (p *Player) SetVolume(value int) {
 
 	p.percentVolume = max(0, min(value, 120))
 	p.updateVolume()
+}
+
+func (p *Player) IsMuted() bool {
+	if p.streamer == nil {
+		return false
+	}
+	if p.volumeCtl != nil {
+		return p.volumeCtl.Silent
+	}
+	return p.percentVolume == 0
+}
+
+func (p *Player) IsPaused() bool {
+	if p.pauseCtl != nil {
+		return p.pauseCtl.Paused
+	}
+	return false
+}
+
+func (p *Player) IsCompleted() bool {
+	return p.completed
+}
+
+func (p *Player) IsLoaded() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.streamer != nil
+}
+
+func (p *Player) Elapsed() time.Duration {
+	return p.elapsed
 }
 
 func (p *Player) Duration() time.Duration {
@@ -163,6 +195,9 @@ func (p *Player) Play(opts ...PlayerOpt) error {
 		streamer, format, err = flac.Decode(p.file)
 	case ".ogg":
 		streamer, format, err = vorbis.Decode(p.file)
+
+	// TODO: maybe add support to .midi files
+
 	default:
 		err = errors.New("not supported file format")
 	}
@@ -172,21 +207,25 @@ func (p *Player) Play(opts ...PlayerOpt) error {
 	}
 	p.streamer, p.format = streamer, format
 
+	// for some tiny files just fill the buffer with the whole audio file (1 MiB)
 	var buffer *beep.Buffer
-
 	if p.info.Size() < MaxInMemorySize {
 		buffer = beep.NewBuffer(format)
 		buffer.Append(streamer)
 
 		streamer.Close()
-		p.closed = true
+		if p.file != nil {
+			p.file.Close()
+		}
 	}
 
 	if buffer != nil {
 		p.streamer = buffer.Streamer(0, buffer.Len())
 	}
 
-	var resampledStreamer beep.Streamer = p.streamer
+	// resample the audio to avoid weird bitrate
+	// maybe the global sample rate is a bad idea, TODO: investigate
+	resampledStreamer := p.streamer
 	if format.SampleRate != GlobalSampleRate {
 		resampledStreamer = beep.Resample(p.conf.Quality, format.SampleRate, GlobalSampleRate, p.streamer)
 	}
@@ -195,7 +234,7 @@ func (p *Player) Play(opts ...PlayerOpt) error {
 		Streamer: resampledStreamer,
 		Paused:   p.conf.Paused,
 	}
-
+	// by the docs, it is necessary to pass the Ctrl to the volume ctl
 	p.volumeCtl = &effects.Volume{
 		Streamer: p.pauseCtl,
 		Base:     2.0,
@@ -204,45 +243,20 @@ func (p *Player) Play(opts ...PlayerOpt) error {
 	}
 	p.updateVolume()
 
+	// get the duration
 	p.duration = format.SampleRate.D(streamer.Len()).Round(time.Second)
 
-	speaker.Play(
-		beep.Seq(p.volumeCtl, beep.Callback(func() {
-			p.donech <- struct{}{}
-		})),
-	)
+	// init volume percent
+	p.SetVolume(p.conf.Volume)
 
-	go func() {
-		step := 250 * time.Millisecond
-		ticker := time.NewTicker(step)
-		defer ticker.Stop()
+	p.startPlayback()
+	return nil
+}
 
-		for range ticker.C {
-			p.mu.Lock()
-
-			if p.streamer != nil {
-				if v, ok := p.streamer.(beep.StreamSeeker); ok {
-					p.elapsed = p.format.SampleRate.D(v.Position()).Round(time.Second)
-				} else {
-					p.elapsed += step
-				}
-			}
-
-			select {
-			case <-p.donech:
-				p.mu.Unlock()
-				return
-			default:
-			}
-
-			if p.elapsed >= p.duration {
-				p.mu.Unlock()
-				return
-			}
-			p.mu.Unlock()
-		}
-	}()
-
+func (p *Player) Err() error {
+	if p.streamer != nil {
+		return p.streamer.Err()
+	}
 	return nil
 }
 
@@ -330,18 +344,32 @@ func (p *Player) Restart() error {
 		return errors.New("invalid volume controller")
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.elapsed = 0
-	p.volumeCtl.Silent = false
-
 	seeker, ok := p.streamer.(beep.StreamSeeker)
 	if !ok {
 		return errors.New("cannot convert beep.Streamer to beep.StreamSeeker")
 	}
 
-	return seeker.Seek(0)
+	p.mu.Lock()
+
+	wasCompleted := p.completed
+
+	p.elapsed = 0
+	p.volumeCtl.Silent = false
+
+	if p.pauseCtl != nil {
+		p.pauseCtl.Paused = false
+	}
+	p.mu.Unlock()
+
+	speaker.Lock()
+	err := seeker.Seek(0)
+	speaker.Unlock()
+
+	if wasCompleted {
+		p.startPlayback()
+	}
+
+	return err
 }
 
 func (p *Player) Rewind() error {
@@ -399,13 +427,18 @@ func (p *Player) Forward() error {
 	currentPos := seeker.Position()
 	offset := p.format.SampleRate.N(step)
 
-	newPos := min(currentPos+offset, seeker.Len()-1)
-	p.elapsed = p.format.SampleRate.D(newPos).Round(time.Second)
+	maxPos := max(0, seeker.Len()-500)
+	newPos := min(currentPos+offset, maxPos)
 
-	if err := seeker.Seek(newPos); err != nil {
+	speaker.Lock()
+	err := seeker.Seek(newPos)
+	speaker.Unlock()
+
+	if err != nil {
 		return err
 	}
 
+	p.elapsed = p.format.SampleRate.D(newPos).Round(time.Second)
 	p.lastSeek = time.Now()
 	return nil
 }
@@ -425,4 +458,48 @@ func (p *Player) updateVolume() {
 
 	factor := float64(p.percentVolume) / 100.0
 	p.volumeCtl.Volume = math.Log2(factor)
+}
+
+func (p *Player) startPlayback() {
+	p.mu.Lock()
+	p.completed = false
+	p.mu.Unlock()
+
+	speaker.Play(
+		beep.Seq(p.volumeCtl, beep.Callback(func() {
+			p.mu.Lock()
+			p.completed = true
+			p.mu.Unlock()
+
+			select {
+			case p.donech <- struct{}{}:
+			default:
+			}
+		})),
+	)
+
+	go func() {
+		step := 250 * time.Millisecond
+		ticker := time.NewTicker(step)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			p.mu.Lock()
+
+			if p.closed || p.completed {
+				p.mu.Unlock()
+				return
+			}
+
+			if p.streamer != nil {
+				if v, ok := p.streamer.(beep.StreamSeeker); ok {
+					p.elapsed = p.format.SampleRate.D(v.Position()).Round(time.Second)
+				} else {
+					p.elapsed += step
+				}
+			}
+
+			p.mu.Unlock()
+		}
+	}()
 }

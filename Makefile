@@ -19,7 +19,7 @@ GOOS = $(word 1, $(platform))
 GOARCH = $(word 2, $(platform))
 GOPROXY ?= "https://proxy.golang.org,direct"
 
-.PHONY: all clean tidy run install
+.PHONY: all clean tidy run install uninstall
 
 all:
 	@$(MAKE) build
@@ -53,3 +53,6 @@ install: build
 	@echo "installing: $(BIN) to /usr/local/bin"
 	@cp $(OUTPUT_DIR)/bin/$(GOOS)/$(GOARCH)/$(BIN) /usr/local/bin/$(BIN)
 
+uninstall:
+	@echo "uninstalling $(BIN) from /usr/local/bin"
+	@rm -f /usr/local/bin/$(BIN)

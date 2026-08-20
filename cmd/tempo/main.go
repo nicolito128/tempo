@@ -2,23 +2,23 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"math/rand"
 	"os"
 	"os/exec"
-	"os/signal"
 	"runtime"
-	"syscall"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/nicolito128/tempo/sound"
+	"github.com/nicolito128/tempo/tui"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	pausedFlag bool
-	silentFlag bool
-
-	volumeFlag int
+	pauseFlag   bool
+	muteFlag    bool
+	shuffleFlag bool
+	volumeFlag  int
 )
 
 var rootCmd = &cobra.Command{
@@ -28,40 +28,38 @@ var rootCmd = &cobra.Command{
 		if len(args) == 0 {
 			return cmd.Help()
 		}
+
+		opts := make([]sound.PlayerOpt, 0)
+		opts = append(opts,
+			sound.WithPlayerPaused(pauseFlag),
+			sound.WithPlayerSilent(muteFlag),
+			sound.WithPlayerVolume(volumeFlag),
+		)
+
+		ap := tui.NewAudioPlayer(opts...)
+		for _, arg := range args {
+			ap.Append(arg)
+		}
+
+		queue := ap.Model().Queue()
+		if len(queue) == 0 {
+			fmt.Println("Tempo has nothing to play. Try suplying files with the following extensions: .mp3, .wav, .ogg, .flac.")
+			return nil
+		}
+		if shuffleFlag {
+			rand.Shuffle(len(queue), func(i, j int) {
+				queue[i], queue[j] = queue[j], queue[i]
+			})
+		}
+
 		if err := sound.InitAudioSystem(); err != nil {
-			panic(err)
+			return err
 		}
-
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-
-		queue := make([]*sound.Player, len(args))
-		for i := range len(args) {
-			queue[i] = sound.NewPlayer(args[i])
-		}
-
 		clearConsole()
 
-	outer:
-		for _, q := range queue {
-			defer q.Close()
-
-			q.SetVolume(volumeFlag)
-			if err := q.Play(sound.WithPlayerPaused(pausedFlag), sound.WithPlayerSilent(silentFlag)); err != nil {
-				fmt.Println(err)
-			}
-
-			fmt.Println(q.Path())
-
-		inner:
-			for {
-				select {
-				case <-sigs:
-					break outer
-				case <-q.Done():
-					break inner
-				}
-			}
+		prog := tea.NewProgram(ap.Model())
+		if _, err := prog.Run(); err != nil {
+			return err
 		}
 
 		return nil
@@ -69,15 +67,16 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.Flags().BoolVarP(&pausedFlag, "paused", "p", false, "Start the sound player in paused mode")
-	rootCmd.Flags().BoolVarP(&silentFlag, "silent", "s", false, "Start the sound player in silent mode")
+	rootCmd.Flags().BoolVarP(&pauseFlag, "pause", "p", false, "Start the sound player in paused mode")
+	rootCmd.Flags().BoolVarP(&muteFlag, "mute", "m", false, "Start the sound player in mute mode")
+	rootCmd.Flags().BoolVar(&shuffleFlag, "shuffle", false, "Shuffle the queue")
 
-	rootCmd.Flags().IntVarP(&volumeFlag, "volume", "v", sound.DefaultInitVolume, "Start the sound player with the given percentual volume")
+	rootCmd.Flags().IntVarP(&volumeFlag, "volume", "v", sound.DefaultInitVolume, "Start the sound player with the given volume percent")
 }
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		log.Fatal(err)
+		fmt.Printf("Tempo, there's been an error: %v\n", err)
 	}
 }
 

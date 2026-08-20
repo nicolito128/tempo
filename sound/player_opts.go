@@ -7,6 +7,8 @@ type PlayerConfig struct {
 	Silent bool
 	// Resample quality
 	Quality int
+	// Initial volume percent
+	Volume int
 }
 
 func DefaultPlayerConfig() *PlayerConfig {
@@ -16,6 +18,7 @@ func DefaultPlayerConfig() *PlayerConfig {
 	cfg.Silent = false
 
 	cfg.Quality = 3
+	cfg.Volume = DefaultInitVolume
 
 	return cfg
 }
@@ -37,5 +40,11 @@ func WithPlayerSilent(silent bool) PlayerOpt {
 func WithPlayerQuality(quality int) PlayerOpt {
 	return func(c *PlayerConfig) {
 		c.Quality = quality
+	}
+}
+
+func WithPlayerVolume(volume int) PlayerOpt {
+	return func(c *PlayerConfig) {
+		c.Volume = volume
 	}
 }
